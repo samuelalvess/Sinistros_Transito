@@ -1,210 +1,169 @@
-
+-- ===========================================================================
+-- DDL - DATA WAREHOUSE (Camada Gold) | Projeto: Sinistros_Transito (DATATRAN 2025)
+-- ===========================================================================
+-- Modelo: Star Schema (Dimensões + Fato)
+-- Fato principal: quantidade de mortos (qtd_mortos)
+-- Fonte (Silver): silver.silver_sinistros
+-- ===========================================================================
 
 CREATE SCHEMA IF NOT EXISTS dw;
-COMMENT ON SCHEMA dw IS 'Camada dw - Modelo estrela (Fato + Dimensões) para analytics/BI';
+COMMENT ON SCHEMA dw IS 'Data Warehouse - Star Schema (Camada Gold) para Sinistros de Trânsito';
 
--- ============================================================================
--- DIMENSÕES
--- ============================================================================
-
--- dim_TMP (Dimensão Tempo - por dia)
+-- ===========================================================================
+-- LIMPA AS TABELAS (caso já existam)
+-- ===========================================================================
+DROP TABLE IF EXISTS dw.fat_mor CASCADE;
 DROP TABLE IF EXISTS dw.dim_tmp CASCADE;
-
-CREATE TABLE dw.dim_tmp (
-  SRK_TMP SERIAL PRIMARY KEY,
-  DAT DATE NOT NULL,            
-  DIA_SMN VARCHAR(15),              -- nome do dia da semana (ex.: SEGUNDA-FEIRA)                 
-);
-
-CREATE UNIQUE INDEX ux_dim_tmp_dat ON dw.dim_tmp(DAT);
-
-COMMENT ON TABLE dw.dim_tmp IS 'Dimensão tempo (1 linha por dia)';
-
--- dim_HOR (Dimensão Hora)
-DROP TABLE IF EXISTS dw.dim_hor CASCADE;
-
-CREATE TABLE dw.dim_hor (
-  SRK_HOR SERIAL PRIMARY KEY,
-  HOR TIME NOT NULL,            -- hora do acidente
-);
-
-CREATE UNIQUE INDEX ux_dim_hor_hor ON dw.dim_hor(HOR);
-
-COMMENT ON TABLE dw.dim_hor IS 'Dimensão hora (TIME) + atributos derivados';
-
--- dim_LOC (Dimensão Local)
 DROP TABLE IF EXISTS dw.dim_loc CASCADE;
-
-CREATE TABLE dw.dim_loc (
-  SRK_LOC SERIAL PRIMARY KEY,
-  UND_FED VARCHAR(2),               -- UF
-  MUN TEXT,                     -- município
-  BRR VARCHAR(20),              -- BR / rodovia
-  URB BOOLEAN,                  -- área urbana
-  LAT DOUBLE PRECISION,
-  LNG DOUBLE PRECISION
-);
-
-CREATE UNIQUE INDEX ux_dim_loc_key ON dw.dim_loc(UND_FED, MUN, BRR, URB, LAT, LNG);
-
-CREATE INDEX idx_dim_loc_und_fed ON dw.dim_loc(UND_FED);
-CREATE INDEX idx_dim_loc_mun ON dw.dim_loc(MUN);
-CREATE INDEX idx_dim_loc_brr ON dw.dim_loc(BRR);
-
-COMMENT ON TABLE dw.dim_loc IS 'Dimensão de localização (UF, município, BR, urbano, lat/long)';
-
--- dim_TIP (Dimensão Tipo de Acidente)
-DROP TABLE IF EXISTS dw.dim_tip CASCADE;
-
-CREATE TABLE dw.dim_tip (
-  SRK_TIP SERIAL PRIMARY KEY,
-  TIP TEXT NOT NULL             -- tipo_acidente
-);
-
-CREATE UNIQUE INDEX ux_dim_tip_tip ON dw.dim_tip(TIP);
-
-COMMENT ON TABLE dw.dim_tip IS 'Dimensão do tipo de acidente';
-
--- dim_CAU (Dimensão Causa)
-DROP TABLE IF EXISTS dw.dim_cau CASCADE;
-
-CREATE TABLE dw.dim_cau (
-  SRK_CAU SERIAL PRIMARY KEY,
-  CAU TEXT NOT NULL             -- causa_acidente
-);
-
-CREATE UNIQUE INDEX ux_dim_cau_cau ON dw.dim_cau(CAU);
-
-COMMENT ON TABLE dw.dim_cau IS 'Dimensão da causa do acidente';
-
--- dim_CLA (Dimensão Classificação)
-DROP TABLE IF EXISTS dw.dim_cla CASCADE;
-
-CREATE TABLE dw.dim_cla (
-  SRK_CLA SERIAL PRIMARY KEY,
-  CLA VARCHAR(120) NOT NULL      -- classificacao_acidente
-);
-
-CREATE UNIQUE INDEX ux_dim_cla_cla ON dw.dim_cla(CLA);
-
-COMMENT ON TABLE dw.dim_cla IS 'Dimensão da classificação do acidente';
-
--- dim_VIA (Dimensão Via / Características da via)
+DROP TABLE IF EXISTS dw.dim_sin CASCADE;
 DROP TABLE IF EXISTS dw.dim_via CASCADE;
+DROP TABLE IF EXISTS dw.dim_cli CASCADE;
 
+-- ============================================================================
+-- DIMENSÃO: dim_tmp
+-- Descrição: Dimensão temporal (data/hora do sinistro + atributos derivados)
+-- ============================================================================
+CREATE TABLE dw.dim_tmp (
+    srk_tmp SERIAL PRIMARY KEY,
+    dat_aci DATE NOT NULL,
+    hor_aci TIME NOT NULL,
+    dia_sem VARCHAR(30),
+    fas_dia VARCHAR(50),
+    fim_sem BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE (dat_aci, hor_aci, dia_sem, fas_dia)
+);
+
+COMMENT ON TABLE dw.dim_tmp IS 'Dimensão temporal do sinistro (data/hora + atributos derivados)';
+COMMENT ON COLUMN dw.dim_tmp.srk_tmp IS 'Surrogate Key (PK)';
+COMMENT ON COLUMN dw.dim_tmp.dat_aci IS 'Data do sinistro';
+COMMENT ON COLUMN dw.dim_tmp.hor_aci IS 'Hora do sinistro';
+COMMENT ON COLUMN dw.dim_tmp.dia_sem IS 'Dia da semana (origem Silver / ou derivado)';
+COMMENT ON COLUMN dw.dim_tmp.fas_dia IS 'Fase do dia (origem Silver)';
+COMMENT ON COLUMN dw.dim_tmp.fim_sem IS 'Indicador de fim de semana (sábado/domingo)';
+
+-- ============================================================================
+-- DIMENSÃO: dim_loc
+-- Descrição: Dimensão geográfica (UF, município, BR, coordenadas, urbano/rural)
+-- ============================================================================
+CREATE TABLE dw.dim_loc (
+    srk_loc SERIAL PRIMARY KEY,
+    uni VARCHAR(2),
+    mun TEXT,
+    rod VARCHAR(5),
+    ara_urb BOOLEAN,
+    lat DOUBLE PRECISION,
+    lon DOUBLE PRECISION,
+    UNIQUE (uni, mun, rod, ara_urb, lat, lon)
+);
+
+COMMENT ON TABLE dw.dim_loc IS 'Dimensão geográfica do sinistro';
+COMMENT ON COLUMN dw.dim_loc.srk_loc IS 'Surrogate Key (PK)';
+COMMENT ON COLUMN dw.dim_loc.uni IS 'UF do local do sinistro';
+COMMENT ON COLUMN dw.dim_loc.mun IS 'Município do sinistro';
+COMMENT ON COLUMN dw.dim_loc.rod IS 'Rodovia/BR (quando aplicável)';
+COMMENT ON COLUMN dw.dim_loc.ara_urb IS 'Indicador de área urbana';
+COMMENT ON COLUMN dw.dim_loc.lat IS 'Latitude do sinistro (validada/normalizada)';
+COMMENT ON COLUMN dw.dim_loc.lon IS 'Longitude do sinistro (validada/normalizada)';
+
+-- ============================================================================
+-- DIMENSÃO: dim_sinistro
+-- Descrição: Características do sinistro (tipo, causa, classificação)
+-- ============================================================================
+CREATE TABLE dw.dim_sin (
+    srk_sin SERIAL PRIMARY KEY,
+    tip_aci TEXT,
+    cau_aci TEXT,
+    cla_aci VARCHAR(100),
+    UNIQUE (tip_aci, cau_aci, cla_aci)
+);
+
+COMMENT ON TABLE dw.dim_sin IS 'Dimensão de características do sinistro';
+COMMENT ON COLUMN dw.dim_sin.srk_sin IS 'Surrogate Key (PK)';
+COMMENT ON COLUMN dw.dim_sin.tip_aci IS 'Tipo de acidente';
+COMMENT ON COLUMN dw.dim_sin.cau_aci IS 'Causa presumida';
+COMMENT ON COLUMN dw.dim_sin.cla_aci IS 'Classificação do acidente';
+-- ============================================================================
+-- DIMENSÃO: dim_via
+-- Descrição: Condições/atributos da via (sentido, pista, traçado)
+-- ============================================================================
 CREATE TABLE dw.dim_via (
-  SRK_VIA SERIAL PRIMARY KEY,
-  TPI VARCHAR(120),              -- tipo_pista
-  TRC VARCHAR(120),              -- tracado_via
-  SNT VARCHAR(120)               -- sentido_via
+    srk_via SERIAL PRIMARY KEY,
+    sen_via VARCHAR(20),
+    tip_pis VARCHAR(30),
+    tra_via VARCHAR(100),
+    UNIQUE (sen_via, tip_pis, tra_via)
 );
 
-CREATE UNIQUE INDEX ux_dim_via_key ON dw.dim_via(TPI, TRC, SNT);
+COMMENT ON TABLE dw.dim_via IS 'Dimensão de atributos da via';
+COMMENT ON COLUMN dw.dim_via.srk_via IS 'Surrogate Key (PK)';
+COMMENT ON COLUMN dw.dim_via.sen_via IS 'Sentido da via';
+COMMENT ON COLUMN dw.dim_via.tip_pis IS 'Tipo de pista';
+COMMENT ON COLUMN dw.dim_via.tra_via IS 'Traçado da via';
 
-COMMENT ON TABLE dw.dim_via IS 'Dimensão de características da via';
-
--- dim_CON (Dimensão Condições / fase do dia / climática)
-DROP TABLE IF EXISTS dw.dim_con CASCADE;
-
-CREATE TABLE dw.dim_con (
-  SRK_CON SERIAL PRIMARY KEY,
-  FAS_DIA VARCHAR(80),               -- fase_dia
-  CON_CLI VARCHAR(120)               -- condicao_metereologica (climática)
+-- ============================================================================
+-- DIMENSÃO: dim_clima
+-- Descrição: Condição meteorológica
+-- ============================================================================
+CREATE TABLE dw.dim_cli (
+    srk_cli SERIAL PRIMARY KEY,
+    con_met VARCHAR(100),
+    UNIQUE (con_met)
 );
 
-CREATE UNIQUE INDEX ux_dim_con_key ON dw.dim_con(FAS_DIA, CON_CLI);
-
-COMMENT ON TABLE dw.dim_con IS 'Dimensão de condições (fase do dia + condição climática)';
+COMMENT ON TABLE dw.dim_cli IS 'Dimensão de condição meteorológica';
+COMMENT ON COLUMN dw.dim_cli.srk_cli IS 'Surrogate Key (PK)';
+COMMENT ON COLUMN dw.dim_cli.con_met IS 'Condição meteorológica no momento do sinistro';
 
 -- ============================================================================
--- FATO
+-- TABELA FATO: fat_mor
+-- Descrição: Fato de sinistros (medida principal: qtd_mortos)
+-- Grão: 1 linha por registro na Silver (id do sinistro)
 -- ============================================================================
+CREATE TABLE dw.fat_mor (
+    srk_fato BIGSERIAL PRIMARY KEY,
 
--- FAT_ACI (Fato de Acidentes / Sinistros)
--- Grão: 1 linha = 1 sinistro (registro original)
-DROP TABLE IF EXISTS dw.fat_aci CASCADE;
+    -- Foreign keys (dimensões)
+    srk_tmp INTEGER NOT NULL REFERENCES dw.dim_tmp(srk_tmp),
+    srk_loc INTEGER REFERENCES dw.dim_loc(srk_loc),
+    srk_sin INTEGER REFERENCES dw.dim_sin(srk_sin),
+    srk_via INTEGER REFERENCES dw.dim_via(srk_via),
+    srk_cli INTEGER REFERENCES dw.dim_cli(srk_cli),
 
-CREATE TABLE dw.fat_aci (
-  SRK_ACI SERIAL PRIMARY KEY,  
-  IDN BIGINT,    -- SRK da FATO
-  SRK_TMP INTEGER NOT NULL,          -- SRK da DIM_TMP
-  SRK_HOR INTEGER NOT NULL,          -- SRK da DIM_HOR
-  SRK_LOC INTEGER NOT NULL,          -- SRK da DIM_LOC
-  SRK_TIP INTEGER NOT NULL,          -- SRK da DIM_TIP      
-  SRK_CAU INTEGER NOT NULL,          -- SRK da DIM_CAU
-  SRK_CLA INTEGER NOT NULL,          -- SRK da DIM_CLA
-  SRK_VIA INTEGER NOT NULL,          -- SRK da DIM_VIA
-  SRK_CON INTEGER NOT NULL,          -- SRK da DIM_CON
+    -- Degenerate dimension (chave natural do sinistro)
+    sin_id INTEGER NOT NULL,
 
+    -- Medidas (métricas)
+    qtd_mor INTEGER NOT NULL DEFAULT 0,
+    qtd_pes INTEGER,
+    qtd_fer INTEGER,
+    qtd_ile INTEGER,
+    qtd_vei INTEGER,
 
-  -- Chaves estrangeiras (SRKs das dimensões)
-  CONSTRAINT FK_FAT_TMP FOREIGN KEY (SRK_TMP)  REFERENCES dw.dim_tmp(SRK_TMP),
-  CONSTRAINT FK_FAT_HOR FOREIGN KEY (SRK_HOR) REFERENCES dw.dim_hor(SRK_HOR),
-  CONSTRAINT FK_FAT_LOC FOREIGN KEY (SRK_LOC) REFERENCES dw.dim_loc(SRK_LOC),
-  CONSTRAINT FK_FAT_TIP FOREIGN KEY (SRK_TIP) REFERENCES dw.dim_tip(SRK_TIP),
-  CONSTRAINT FK_FAT_CAU FOREIGN KEY (SRK_CAU) REFERENCES dw.dim_cau(SRK_CAU),
-  CONSTRAINT FK_FAT_CLA FOREIGN KEY (SRK_CLA) REFERENCES dw.dim_cla(SRK_CLA),
-  CONSTRAINT FK_FAT_VIA FOREIGN KEY (SRK_VIA) REFERENCES dw.dim_via(SRK_VIA),
-  CONSTRAINT FK_FAT_CON FOREIGN KEY (SRK_CON) REFERENCES dw.dim_con(SRK_CON),
-
-  -- Chave natural de rastreio (da SILVER/RAW)
-  IDN BIGINT,                           -- id original (silver.id)
-
-  -- Medidas (QTD_*)
-  QTD_PSA INTEGER,                      -- pessoas
-  QTD_MRT INTEGER,                      -- mortos
-  QTD_FRD INTEGER,                      -- feridos
-  QTD_ILS INTEGER,                      -- ilesos
-  QTD_VCL INTEGER,                      -- veículos
-
-
+    UNIQUE (sin_id)
 );
 
-CREATE INDEX idx_fat_aci_tmp ON dw.fat_aci(SRK_TMP);
-CREATE INDEX idx_fat_aci_loc ON dw.fat_aci(SRK_LOC);
-CREATE INDEX idx_fat_aci_tip ON dw.fat_aci(SRK_TIP);
-CREATE INDEX idx_fat_aci_cau ON dw.fat_aci(SRK_CAU);
-CREATE INDEX idx_fat_aci_mrt ON dw.fat_aci(QTD_MRT) WHERE QTD_MRT > 0;
-
-COMMENT ON TABLE dw.fat_aci IS 'Fato de sinistros/acidentes (grão = 1 sinistro), com SRKs e medidas (pessoas, mortos, feridos, etc.)';
-
--- ============================================================================
--- VIEW (opcional) — Fato enriquecida (join de dimensões)
--- ============================================================================
-CREATE OR REPLACE VIEW dw.vw_fat_aci_enriquecida AS
-SELECT
-  f.SRK_ACI,
-  f.IDN,
-  t.DAT,
-  h.HOR,
-  l.UND_FED AS UF,
-  l.MUN AS MUNICIPIO,
-  l.BRR AS BR,
-  l.URB AS AREA_URBANA,
-  tip.TIP AS TIPO_ACIDENTE,
-  cau.CAU AS CAUSA_ACIDENTE,
-  cla.CLA AS CLASSIFICACAO_ACIDENTE,
-  via.TPI AS TIPO_PISTA,
-  via.TRC AS TRACADO_VIA,
-  via.SNT AS SENTIDO_VIA,
-  con.FDI AS FASE_DIA,
-  con.CLI AS CONDICAO_CLIMATICA,
-  f.QTD_ACI,
-  f.QTD_PSA,
-  f.QTD_MRT,
-  f.QTD_FRD,
-  f.QTD_ILS,
-  f.QTD_VCL
-FROM dw.fat_aci f
-LEFT JOIN dw.dim_tmp t ON t.SRK_TMP = f.SRK_TMP
-LEFT JOIN dw.dim_hor h ON h.SRK_HOR = f.SRK_HOR
-LEFT JOIN dw.dim_loc l ON l.SRK_LOC = f.SRK_LOC
-LEFT JOIN dw.dim_tip tip ON tip.SRK_TIP = f.SRK_TIP
-LEFT JOIN dw.dim_cau cau ON cau.SRK_CAU = f.SRK_CAU
-LEFT JOIN dw.dim_cla cla ON cla.SRK_CLA = f.SRK_CLA
-LEFT JOIN dw.dim_via via ON via.SRK_VIA = f.SRK_VIA
-LEFT JOIN dw.dim_con con ON con.SRK_CON = f.SRK_CON;
+COMMENT ON TABLE dw.fat_mor IS 'Fato de sinistros - medida principal: quantidade de mortos';
+COMMENT ON COLUMN dw.fat_mor.srk_fato IS 'Surrogate Key da tabela fato (PK)';
+COMMENT ON COLUMN dw.fat_mor.srk_tmp IS 'FK para dim_tmp';
+COMMENT ON COLUMN dw.fat_mor.srk_loc IS 'FK para dim_loc';
+COMMENT ON COLUMN dw.fat_mor.srk_sin IS 'FK para dim_sinistro';
+COMMENT ON COLUMN dw.fat_mor.srk_via IS 'FK para dim_via';
+COMMENT ON COLUMN dw.fat_mor.srk_cli IS 'FK para dim_clima';
+COMMENT ON COLUMN dw.fat_mor.sin_id IS 'Identificador original do sinistro (silver.id)';
+COMMENT ON COLUMN dw.fat_mor.qtd_mor IS 'Quantidade de mortos no sinistro (medida principal)';
+COMMENT ON COLUMN dw.fat_mor.qtd_pes IS 'Total de pessoas envolvidas';
+COMMENT ON COLUMN dw.fat_mor.qtd_fer IS 'Total de feridos';
+COMMENT ON COLUMN dw.fat_mor.qtd_ile IS 'Total de ilesos';
+COMMENT ON COLUMN dw.fat_mor.qtd_vei IS 'Total de veículos';
 
 -- ============================================================================
--- FIM DO DDL dw
+-- ÍNDICES (para performance analítica)
 -- ============================================================================
+CREATE INDEX idx_fat_mor_tmp ON dw.fat_mor(srk_tmp);
+CREATE INDEX idx_fat_mor_loc ON dw.fat_mor(srk_loc);
+CREATE INDEX idx_fat_mor_sin ON dw.fat_mor(srk_sin);
+CREATE INDEX idx_fat_mor_via ON dw.fat_mor(srk_via);
+CREATE INDEX idx_fat_mor_cli ON dw.fat_mor(srk_cli);
+
+-- Filtro comum: sinistros com mortos
+CREATE INDEX idx_fat_mor_fis ON dw.fat_mor(qtd_mor) WHERE qtd_mor > 0;

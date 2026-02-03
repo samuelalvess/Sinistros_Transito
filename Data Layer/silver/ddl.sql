@@ -21,7 +21,7 @@ CREATE TABLE silver.silver_sinistros (
     -- Localização
     uf VARCHAR(2),
     municipio TEXT,
-    br VARCHAR(10),                 
+    br VARCHAR(5),                 
     latitude DOUBLE PRECISION,
     longitude DOUBLE PRECISION,
     area_urbana BOOLEAN,           
@@ -31,13 +31,13 @@ CREATE TABLE silver.silver_sinistros (
     fase_dia VARCHAR(50),
     tipo_acidente TEXT,
     causa_acidente TEXT,
-    classificacao_acidente VARCHAR(80),
+    classificacao_acidente VARCHAR(100),
 
     -- Via / Condições
-    sentido_via VARCHAR(50),
-    condicao_metereologica VARCHAR(80),
-    tipo_pista VARCHAR(80),
-    tracado_via VARCHAR(80),
+    sentido_via VARCHAR(20),
+    condicao_metereologica VARCHAR(100),
+    tipo_pista VARCHAR(30),
+    tracado_via VARCHAR(100),
 
     -- Métricas (contagens)
     pessoas INTEGER,
