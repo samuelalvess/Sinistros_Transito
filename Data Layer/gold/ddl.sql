@@ -120,7 +120,7 @@ COMMENT ON COLUMN dw.dim_cli.con_met IS 'Condição meteorológica no momento do
 -- Grão: 1 linha por registro na Silver (id do sinistro)
 -- ============================================================================
 CREATE TABLE dw.fat_mor (
-    srk_fato BIGSERIAL PRIMARY KEY,
+    srk_fat BIGSERIAL PRIMARY KEY,
 
     -- Foreign keys (dimensões)
     srk_tmp INTEGER NOT NULL REFERENCES dw.dim_tmp(srk_tmp),
